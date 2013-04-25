@@ -26,7 +26,7 @@ OBJ_PARSER=$(patsubst %.cpp,$(OBJ_DIR)/%.o,$(PARSER) $(SCANNER))
 $(OBJ_DIR)/%.o: $(SRC_DIR)/%.cpp $(DEPS_)
 	$(CC) $(CCFLAGS) -c -o $@ $<
 
-all: test_scanner test_parser test_ir
+all: test_scanner test_parser
 
 test_scanner: $(OBJ_DIR)/test_scanner.o $(OBJ_SCANNER)
 	$(CC) $(CCFLAGS) -o $@ $(OBJ_DIR)/test_scanner.o $(OBJ_SCANNER)
