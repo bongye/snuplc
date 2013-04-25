@@ -101,10 +101,6 @@ class CParser {
 		CAstConstant*			boolean(void);
 		CAstType*					type(void);
 
-		CAstOperand*			factOp(void);
-		CAstOperand*			termOp(void);
-		CAstOperand*			relOp(void);
-
     CAstExpression*   factor(CAstScope *s);
     CAstExpression*   term(CAstScope *s);
     CAstExpression*   simpleexpr(CAstScope *s);

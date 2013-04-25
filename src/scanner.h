@@ -50,8 +50,8 @@ using namespace std;
 enum EToken {
   tNumber,                          ///< number
 	tUnaryOp,
-  tFactOp,			                    ///< '+' or '-' or '&&'
-  tTermOp,                          ///< '*' or '/' or '||'
+  tFactOp,			                    ///< '*' or '/' or '||'
+  tTermOp,                          ///< '+' or '-' or '&&'
   tRelOp,                           ///< relational operator
   tAssign,                          ///< assignment operator
   tSemicolon,                       ///< a semicolon

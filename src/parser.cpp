@@ -137,6 +137,38 @@ CAstModule* CParser::module(void)
   return m;
 }
 
+CAstDesignator* CParser::ident(void)
+{
+
+}
+
+CAstConstant* CParser::number(void)
+{
+  //
+  // number = digit { digit }.
+  //
+  // "digit { digit }" is scanned as one token (tNumber)
+  //
+
+  CToken t;
+
+  Consume(tNumber, &t);
+
+  errno = 0;
+  long long v = strtoll(t.GetValue().c_str(), NULL, 10);
+  if (errno != 0) SetError(t, "invalid number.");
+
+  return new CAstConstant(t, CTypeManager::Get()->GetInt(), v);
+}
+
+CAstConstant* CParser::boolean(void)
+{
+}
+
+CAstType* CParser::type(void)
+{
+}
+
 CAstStatement* CParser::statSequence(CAstScope *s)
 {
   //
@@ -187,17 +219,52 @@ CAstStatement* CParser::statSequence(CAstScope *s)
 CAstStatAssign* CParser::assignment(CAstScope *s)
 {
   //
-  // assignment = number ":=" expression.
+  // assignment = ident ":=" expression.
   //
   CToken t;
 
-  CAstConstant *lhs = number();
+  CAstDesignator *lhs = ident();
 
   Consume(tAssign, &t);
 
   CAstExpression *rhs = expression(s);
 
   return new CAstStatAssign(t, lhs, rhs);
+}
+
+CAstStatCall* CParser::subroutineCall(CAstScope *s)
+{
+	//
+	// subroutineCall = ident "(" [expression { "," expression } ] ")" .
+	//
+	// FIRST(expression) = { +, -, tIdent, tBoolean, tNumber, tLBrak, tUnary}
+	//
+	CToken t;
+	CAstDesignator *identifier = NULL;
+	CAstExpression *right = NULL;
+	CAstFunctionCall *call = NULL;
+
+	identifier = ident();
+	
+	Consume(tLBrak, &t);
+	
+	t = _scanner->Peek();
+	if(t.getType() == tFactOp && t.getValue().compare("+") == 0 ||
+		 t.getType() == tFactOp && t.getValue().compare("-") == 0 ||
+		 t.getType() == tNumber ||
+		 t.getType() == tLBrak ||
+		 t.getType() == tUnary){
+		right = expression(s);
+		while(_scanner->Peek().getType() == tComma){
+			Consume(tComma, &t);
+			right = expression(s);
+		}
+	}
+	
+	Consume(tRBrak, &t);
+
+	call = new CAstFunctionCall(t, identifier->GetSymbol());
+	return new CAstStatCall(t, call);
 }
 
 CAstExpression* CParser::expression(CAstScope* s)
@@ -302,21 +369,3 @@ CAstExpression* CParser::factor(CAstScope *s)
   return n;
 }
 
-CAstConstant* CParser::number(void)
-{
-  //
-  // number = digit { digit }.
-  //
-  // "digit { digit }" is scanned as one token (tNumber)
-  //
-
-  CToken t;
-
-  Consume(tNumber, &t);
-
-  errno = 0;
-  long long v = strtoll(t.GetValue().c_str(), NULL, 10);
-  if (errno != 0) SetError(t, "invalid number.");
-
-  return new CAstConstant(t, CTypeManager::Get()->GetInt(), v);
-}
