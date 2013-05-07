@@ -48,6 +48,7 @@
 #include "ir.h"
 using namespace std;
 
+class CAstDesignator;
 class CAstStatement;
 class CAstExpression;
 class CAstFunctionCall;

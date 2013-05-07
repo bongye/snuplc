@@ -62,11 +62,7 @@ char ETokenName[][TOKEN_STRLEN] = {
 
   "tIdent",
   "tType",
-	"tInteger",
 	"tBoolean",
-
-	"tTrue",
-	"tFalse",
 
   "tIf",
   "tThen",
@@ -110,12 +106,8 @@ char ETokenStr[][TOKEN_STRLEN] = {
   "tRBrak",                         ///< a right bracket
 
   "tIdent (%s)",
-  "tType",
-	"tInteger",
-	"tBoolean",
-
-	"tTrue",
-	"tFalse",
+  "tType (%s)",
+	"tBoolean (%s)",
 
   "tIf",
   "tThen",
@@ -147,11 +139,10 @@ char ETokenStr[][TOKEN_STRLEN] = {
 //
 pair<const char*, EToken> Keywords[] =
 {
-	make_pair("type",	tType),
-	make_pair("integer", tInteger),
-	make_pair("boolean", tBoolean),
-	make_pair("true",	tTrue),
-	make_pair("false", tFalse),
+	make_pair("integer", tType),
+	make_pair("boolean", tType),
+	make_pair("true",	tBoolean),
+	make_pair("false", tBoolean),
 	make_pair("if",	tIf),
 	make_pair("then",	tThen),
 	make_pair("else",	tElse),

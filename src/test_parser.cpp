@@ -67,7 +67,8 @@ int main(int argc, char *argv[])
       m->GetSymbolTable()->print(cout, 4);
       cout << endl << endl;
 
-      ofstream out(string(argv[i]) + ".ast.dot");
+			string s = string(argv[i]) + ".ast.dot";
+      ofstream out(s.c_str());
       out << "digraph AST {" << endl;
       m->toDot(out, 2);
       out << "};" << endl;

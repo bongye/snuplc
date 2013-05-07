@@ -36,6 +36,9 @@
 #include <vector>
 #include <iostream>
 #include <exception>
+#include <stdlib.h>
+#include <errno.h>
+
 
 #include "parser.h"
 using namespace std;
@@ -139,7 +142,19 @@ CAstModule* CParser::module(void)
 
 CAstDesignator* CParser::ident(void)
 {
+	//
+	// ident = letter { letter | digit } .
+	//
+	// "letter { letter | digit }" is scanned as one token (tIdent) 
+	//
 
+	CToken t;
+	
+	Consume(tIdent, &t);
+	CSymtab *symtab = _module->GetSymbolTable();
+	const CSymbol *symbol = symtab->FindSymbol(t.GetName());
+
+	return new CAstDesignator(t, symbol);
 }
 
 CAstConstant* CParser::number(void)
@@ -163,57 +178,171 @@ CAstConstant* CParser::number(void)
 
 CAstConstant* CParser::boolean(void)
 {
+	//
+	// boolean = "true" | "false"
+	//
+	// '"true" | "false"' is scanned as one token(tBoolean)
+	//
+
+	CToken t;
+	
+	Consume(tBoolean, &t);
+	bool v = t.GetValue().compare("true") == 0;
+
+	return new CAstConstant(t, CTypeManager::Get()->GetBool(), v);
 }
 
 CAstType* CParser::type(void)
 {
+	//
+	// type = "integer" | "boolean"
+	//
+	// '"integer" | "boolean"' is scanned as one token(tType)
+	//
+
+	CToken t;
+	CAstType *n;
+	
+	Consume(tType, &t);
+	
+	if (t.GetValue() == "integer") n = new CAstType(t, CTypeManager::Get()->GetInt());
+	else n = new CAstType(t, CTypeManager::Get()->GetBool());
+
+	return n;
 }
 
-CAstStatement* CParser::statSequence(CAstScope *s)
+CAstExpression* CParser::factor(CAstScope *s)
 {
   //
-  // statSequence = [ statement { ";" statement } ].
-  // statement    = assignment.
+  // factor = ident | number | boolean | "(" expression ")" | subroutineCall | "!" factor
   //
-  // FIRST(statSequence) = { tNumber }
-  // FOLLOW(statSequence) = { tDot }
+  // FIRST(factor) = { tIdent, tNumber, tBoolean, tLBrak }
   //
-  CAstStatement *head = NULL;
+  CAstExpression *n = NULL;
+	CToken t = _scanner->Peek();
+	CSymtab *symtab = _module->GetSymbolTable();
 
+  switch (t.GetType()) {
+    case tNumber:
+      n = number();
+      break;
+		case tIdent:
+			if (symtab->FindSymbol(t.GetValue())->GetSymbolType() == stProcedure) {
+				subroutineCall(s);
+			} else {
+				assignment(s);
+			}
+			break;
+		case tBoolean:
+			n = boolean();
+			break;
+    case tLBrak:
+      Consume(tLBrak);
+      n = expression(s);
+      Consume(tRBrak);
+      break;
+		case tUnaryOp:
+			Consume(tUnaryOp);
+			n = factor(s);
+			break;
 
-  EToken tt = _scanner->Peek().GetType();
-  if (!(tt == tDot)) {
-    CAstStatement *tail = NULL;
-
-    do {
-      CToken t;
-      EToken tt = _scanner->Peek().GetType();
-      CAstStatement *st = NULL;
-
-      switch (tt) {
-        // statement ::= assignment
-        case tNumber:
-          st = assignment(s);
-          break;
-
-        default:
-          SetError(_scanner->Peek(), "statement expected.");
-          break;
-      }
-
-      assert(st != NULL);
-      if (head == NULL) head = st;
-      else tail->SetNext(st);
-      tail = st;
-
-      tt = _scanner->Peek().GetType();
-      if (tt == tDot) break;
-
-      Consume(tSemicolon);
-    } while (!_abort);
+    default:
+      SetError(_scanner->Peek(), "factor expected.");
+      break;
   }
 
-  return head;
+  return n;
+}
+
+CAstExpression* CParser::term(CAstScope *s)
+{
+  //
+  // term = factor { factorOp factor }.
+  //
+  CAstExpression *n = NULL;
+
+  n = factor(s);
+
+  while (_scanner->Peek().GetType() == tFactOp) {
+    CToken t;
+    CAstExpression *l = n, *r;
+
+    Consume(tFactOp, &t);
+
+    r = factor(s);
+		EOperation op;
+		if(t.GetValue() == "*") op = opMul;
+		else if(t.GetValue() == "/") op = opDiv;
+		else if(t.GetValue() == "&&") op = opAnd;
+		else SetError(t, "invalid operator.");
+
+    n = new CAstBinaryOp(t, op, l, r);
+  }
+
+  return n;
+}
+
+CAstExpression* CParser::simpleexpr(CAstScope *s)
+{
+  //
+  // simpleexpr = ['+'|'-'] term { termOp term }.
+	//
+  CAstExpression *n = NULL;
+	CToken tt;
+	tt = _scanner->Peek();
+	if(tt.GetValue() == "+" || tt.GetValue() == "-"){
+		Consume(tTermOp, &tt);
+	}
+
+  n = term(s);
+
+  while (_scanner->Peek().GetType() == tTermOp){
+    CToken t;
+    CAstExpression *l = n, *r;
+
+    Consume(tTermOp, &t);
+
+    r = term(s);
+		EOperation op;
+		if(t.GetValue() == "+") op = opAdd;
+		else if(t.GetValue() == "-") op = opSub;
+		else if(t.GetValue() == "||") op = opOr;
+		else SetError(t, "invalid operator.");
+
+    n = new CAstBinaryOp(t, op, l, r);
+  }
+
+
+  return n;
+}
+
+CAstExpression* CParser::expression(CAstScope* s)
+{
+  //
+  // expression = simpleexpr [ relOp simpleexpr ].
+  //
+  CToken t;
+  EOperation relop;
+  CAstExpression *left = NULL, *right = NULL;
+
+  left = simpleexpr(s);
+
+  if (_scanner->Peek().GetType() == tRelOp) {
+    Consume(tRelOp, &t);
+    right = simpleexpr(s);
+
+    if (t.GetValue() == "=")       relop = opEqual;
+    else if (t.GetValue() == "#")  relop = opNotEqual;
+		else if (t.GetValue() == "<")  relop = opLessThan;
+		else if (t.GetValue() == "<=") relop = opLessEqual;
+		else if (t.GetValue() == ">")  relop = opBiggerThan;
+		else if (t.GetValue() == ">=") relop = opBiggerEqual;
+    else SetError(t, "invalid relation.");
+
+    return new CAstBinaryOp(t, relop, left, right);
+  } else {
+    return left;
+  }
 }
 
 CAstStatAssign* CParser::assignment(CAstScope *s)
@@ -249,123 +378,75 @@ CAstStatCall* CParser::subroutineCall(CAstScope *s)
 	Consume(tLBrak, &t);
 	
 	t = _scanner->Peek();
-	if(t.getType() == tFactOp && t.getValue().compare("+") == 0 ||
-		 t.getType() == tFactOp && t.getValue().compare("-") == 0 ||
-		 t.getType() == tNumber ||
-		 t.getType() == tLBrak ||
-		 t.getType() == tUnary){
+	if(t.GetType() != tRBrak){
 		right = expression(s);
-		while(_scanner->Peek().getType() == tComma){
+		while(_scanner->Peek().GetType() == tComma){
 			Consume(tComma, &t);
 			right = expression(s);
 		}
+	} else {
+		Consume(tRBrak, &t);
 	}
-	
-	Consume(tRBrak, &t);
-
-	call = new CAstFunctionCall(t, identifier->GetSymbol());
+	call = new CAstFunctionCall(t, (CSymProc *)identifier->GetSymbol());
 	return new CAstStatCall(t, call);
 }
 
-CAstExpression* CParser::expression(CAstScope* s)
+CAstStatIf* CParser::ifStatement(CAstScope *s)
 {
-  //
-  // expression = simpleexpr [ relOp simpleexpression ].
-  //
-  CToken t;
-  EOperation relop;
-  CAstExpression *left = NULL, *right = NULL;
 
-  left = simpleexpr(s);
-
-  if (_scanner->Peek().GetType() == tRelOp) {
-    Consume(tRelOp, &t);
-    right = simpleexpr(s);
-
-    if (t.GetValue() == "=")       relop = opEqual;
-    else if (t.GetValue() == "#")  relop = opNotEqual;
-    else SetError(t, "invalid relation.");
-
-    return new CAstBinaryOp(t, relop, left, right);
-  } else {
-    return left;
-  }
 }
 
-CAstExpression* CParser::simpleexpr(CAstScope *s)
+CAstStatement* CParser::statSequence(CAstScope *s)
 {
   //
-  // simpleexpr ::= term { termOp term }.
+  // statSequence = [ statement { ";" statement } ].
+  // statement    = assignment | subroutineCall | ifStatement | whileStatement | returnStatement.
   //
-  CAstExpression *n = NULL;
+  // FIRST(statSequence) = { tIdent, tIf, tWhile, tReturn }
+  // FOLLOW(statSequence) = { tEnd }
+  //
+  CAstStatement *head = NULL;
 
-  n = term(s);
 
-  while (_scanner->Peek().GetType() == tFactOp) {
-    CToken t;
-    CAstExpression *l = n, *r;
+  EToken tt = _scanner->Peek().GetType();
+  if (!(tt == tDot)) {
+    CAstStatement *tail = NULL;
 
-    Consume(tFactOp, &t);
+    do {
+      CToken t;
+      EToken tt = _scanner->Peek().GetType();
+      CAstStatement *st = NULL;
 
-    r = term(s);
+      switch (tt) {
+        // statement = assignment | subroutineCall
+        case tIdent:
+          st = assignment(s);
+          break;
 
-    n = new CAstBinaryOp(t, t.GetValue() == "+" ? opAdd : opSub, l, r);
+				case tIf:
+					break;
+				
+				case tWhile:
+					break;
+
+
+
+        default:
+          SetError(_scanner->Peek(), "statement expected.");
+          break;
+      }
+
+      assert(st != NULL);
+      if (head == NULL) head = st;
+      else tail->SetNext(st);
+      tail = st;
+
+      tt = _scanner->Peek().GetType();
+      if (tt == tDot) break;
+
+      Consume(tSemicolon);
+    } while (!_abort);
   }
 
-
-  return n;
+  return head;
 }
-
-CAstExpression* CParser::term(CAstScope *s)
-{
-  //
-  // term = factor { ("*"|"/") factor }.
-  //
-  CAstExpression *n = NULL;
-
-  n = factor(s);
-
-  while (_scanner->Peek().GetType() == tTermOp) {
-    CToken t;
-    CAstExpression *l = n, *r;
-
-    Consume(tTermOp, &t);
-
-    r = factor(s);
-
-    n = new CAstBinaryOp(t, t.GetValue() == "*" ? opMul : opDiv, l, r);
-  }
-
-  return n;
-}
-
-CAstExpression* CParser::factor(CAstScope *s)
-{
-  //
-  // factor = number | "(" expression ")".
-  //
-  // FIRST(factor) = { tNumber, tLBrak }
-  //
-  CAstExpression *n = NULL;
-
-  switch (_scanner->Peek().GetType()) {
-    // factor ::= number
-    case tNumber:
-      n = number();
-      break;
-
-    // factor ::= "(" expression ")"
-    case tLBrak:
-      Consume(tLBrak);
-      n = expression(s);
-      Consume(tRBrak);
-      break;
-
-    default:
-      SetError(_scanner->Peek(), "factor expected.");
-      break;
-  }
-
-  return n;
-}
-

@@ -61,11 +61,7 @@ enum EToken {
 
   tIdent,
   tType,
-	tInteger,
 	tBoolean,
-
-	tTrue,
-	tFalse,
 
   tIf,
   tThen,
