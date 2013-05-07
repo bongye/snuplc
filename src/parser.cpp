@@ -393,16 +393,83 @@ CAstStatCall* CParser::subroutineCall(CAstScope *s)
 
 CAstStatIf* CParser::ifStatement(CAstScope *s)
 {
+	CToken t;
+	CAstExpression *cond = NULL;
+	CAstStatement *ifBody = NULL;
+	CAstStatement *elseBody = NULL;
 
+	Consume(tIf, &t);
+	Consume(tLBrak, &t);
+	cond = expression(s);
+	Consume(tRBrak, &t);
+	Consume(tThen, &t);
+	ifBody = statSequence(s);
+	if(_scanner->Peek().GetType() == tElse) {
+		Consume(tElse, &t);
+		elseBody = statSequence(s);
+	}
+	Consume(tEnd, &t);
+	return new CAstStatIf(t, cond, ifBody, elseBody);
+}
+
+CAstStatWhile* CParser::whileStatement(CAstScope *s)
+{
+	CToken t;
+	CAstExpression *cond = NULL;
+	CAstStatement *body = NULL;
+
+	Consume(tWhile, &t);
+	Consume(tLBrak, &t);
+	cond = expression(s);
+	Consume(tRBrak, &t);
+	Consume(tDo, &t);
+	body = statSequence(s);
+	Consume(tEnd, &t);
+	return new CAstStatWhile(t, cond, body);
+}
+
+CAstStatReturn* CParser::returnStatement(CAstScope *s)
+{
+	// returnStatement = "return" [ expression ]
+	// FIRST(expression) = { '+', '-', tIdent, tNumber, tBoolean, tLBrak, '!' }
+	CToken t;
+	CAstExpression *expr = NULL;
+
+	Consume(tReturn, &t);
+	t = _scanner->Peek();
+	if(t.GetValue() == '+' || t.GetValue() == '-' || t.GetValue() == '!' || t.GetType() == tIdent || t.GetType() == tBoolean || t.GetType() == tLBrak){
+		expr = expression(s);
+	}
+	return new CAstStatReturn(t, s, expr);
+}
+
+CAstStatement* CParser::statement(CAstScope *s)
+{
+	// statement    = assignment | subroutineCall | ifStatement | whileStatement | returnStatement.
+  // FIRST(statement) = { tIdent, tIf, tWhile, tReturn }
+	CToken t;
+	CAstStatement *statement = NULL;
+	
+	t = _scanner->Peek();
+	switch (t.GetType()) {
+		case tIdent:
+			break;
+		case tIf:
+			break;
+		case tWhile:
+			break;
+		case tReturn:
+			break;
+	}
 }
 
 CAstStatement* CParser::statSequence(CAstScope *s)
 {
   //
   // statSequence = [ statement { ";" statement } ].
-  // statement    = assignment | subroutineCall | ifStatement | whileStatement | returnStatement.
+  
   //
-  // FIRST(statSequence) = { tIdent, tIf, tWhile, tReturn }
+
   // FOLLOW(statSequence) = { tEnd }
   //
   CAstStatement *head = NULL;
