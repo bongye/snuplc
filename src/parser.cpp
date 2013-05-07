@@ -467,9 +467,6 @@ CAstStatement* CParser::statSequence(CAstScope *s)
 {
   //
   // statSequence = [ statement { ";" statement } ].
-  
-  //
-
   // FOLLOW(statSequence) = { tEnd }
   //
   CAstStatement *head = NULL;
