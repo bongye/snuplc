@@ -138,6 +138,7 @@ CAstModule* CParser::module(void)
   Consume(tIdent, &t);
   name = t.GetValue();
   m = new CAstModule(t, name);
+	InitSymbolTable(m->GetSymbolTable());
 
   Consume(tSemicolon, &t);  
   varDeclaration(m);  
@@ -154,7 +155,6 @@ CAstModule* CParser::module(void)
   Consume(tDot);
 
   m->SetStatementSequence(statseq);
-
   return m;
 }
 
@@ -237,6 +237,7 @@ CAstExpression* CParser::factor(CAstScope *s)
   // FIRST(factor) = { tIdent, tNumber, tBoolean, tLBrak }
   //
   CAstExpression *n = NULL;
+	const CSymbol *symbol = NULL;
 	CToken t = _scanner->Peek();
 	CSymtab *symTab = s->GetSymbolTable();
   CAstStatCall* call = NULL;
@@ -247,11 +248,16 @@ CAstExpression* CParser::factor(CAstScope *s)
       n = number();
       break;
 		case tIdent:
-			if (symTab->FindSymbol(t.GetValue())->GetSymbolType() == stProcedure) {
-        call = subroutineCall(s);
-        n = call->GetCall();
+			symbol = symTab->FindSymbol(t.GetValue());
+			if (symbol == NULL) {
+				SetError(t, "There is no symbol '" + t.GetValue() + "'.");
 			} else {
-				n = ident(s);
+				if (symbol->GetSymbolType() == stProcedure) {
+					call = subroutineCall(s);
+					n = call->GetCall();
+				} else {
+					n = ident(s);
+				}
 			}
 			break;
 		case tBoolean:
@@ -388,7 +394,7 @@ CAstStatCall* CParser::subroutineCall(CAstScope *s)
 	//
 	// subroutineCall = ident "(" [expression { "," expression } ] ")" .
 	//
-	// FIRST(expression) = { +, -, tIdent, tBoolean, tNumber, tLBrak, tUnary}
+	// FIRST(expression) = { +, -, !,  tIdent, tBoolean, tNumber, tLBrak }
 	//
 	CToken t;
 	CAstDesignator *identifier = NULL;
@@ -400,7 +406,14 @@ CAstStatCall* CParser::subroutineCall(CAstScope *s)
 
 	Consume(tLBrak, &t);
 	
-	if(_scanner->Peek().GetType() != tRBrak){
+	t = _scanner->Peek();
+	if (t.GetValue() == "+" ||
+		  t.GetValue() == "-" ||
+			t.GetValue() == "!" ||
+		  t.GetType() == tIdent ||
+			t.GetType() == tBoolean ||
+			t.GetType() == tNumber ||
+			t.GetType() == tLBrak){
 		arg = expression(s);
     call->AddArg(arg);
 		while(_scanner->Peek().GetType() == tComma){
@@ -408,9 +421,8 @@ CAstStatCall* CParser::subroutineCall(CAstScope *s)
 			arg = expression(s);
       call->AddArg(arg);
 		}
-	} else {
-		Consume(tRBrak, &t);
 	}
+	Consume(tRBrak, &t);
 	
 	return new CAstStatCall(t, call);
 }
@@ -622,7 +634,7 @@ CAstProcedure* CParser::subroutineDecl(CAstScope *s)
     astType = type();
   }
   Consume(tSemicolon, &t);
-  symProc = new CSymProc(name, astType != NULL ? astType->GetType() : NULL);
+  symProc = new CSymProc(name, astType != NULL ? astType->GetType() : CTypeManager::Get()->GetNull());
   int size = v.size();
   for(int i=0; i<size; i++){
     symProc->AddParam(v[i]);
@@ -630,10 +642,16 @@ CAstProcedure* CParser::subroutineDecl(CAstScope *s)
   procedure = new CAstProcedure(t, name, s, symProc);
   symTab->AddSymbol(symProc);
 
+	// add parameter to procedure's symbol table
+	symTab = procedure->GetSymbolTable();
+	for(int i=0; i<size; i++){
+		symTab->AddSymbol(v[i]);
+	}
+
   // subroutineBody
   varDeclaration(procedure);
   Consume(tBegin, &t);
-  statseq = statSequence(s);
+  statseq = statSequence(procedure);
   procedure->SetStatementSequence(statseq);
   Consume(tEnd, &t);
 
