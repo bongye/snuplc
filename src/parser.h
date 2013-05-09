@@ -96,7 +96,7 @@ class CParser {
 
     CAstModule*         module(void);
 		
-	CAstDesignator*     ident(void);
+	CAstDesignator*     ident(CAstScope *s);
     CAstConstant*       number(void);
 	CAstConstant*		boolean(void);
 	CAstType*			type(void);

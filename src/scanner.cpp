@@ -314,8 +314,14 @@ CToken* CScanner::Scan()
 
   if (_in->eof()) return NewToken(tEOF);
   if (!_in->good()) return NewToken(tIOError);
-
-  c = GetChar();
+	
+	c = GetChar();
+	while (c == '/' && _in->peek() == '/'){
+		while (GetChar() != '\n') ;
+		while (_in->good() && IsWhite(_in->peek())) GetChar();
+		RecordStreamPosition();
+		c = GetChar();
+	}
   tokval = c;
   token = tUndefined;
 
@@ -331,7 +337,7 @@ CToken* CScanner::Scan()
 
     case '+':
     case '-':
-      token = tFactOp;
+      token = tTermOp;
       break;
 
 		case '!':
@@ -346,16 +352,10 @@ CToken* CScanner::Scan()
 			break;
     
 		case '*':
-			token = tTermOp;
+			token = tFactOp;
 			break;
     case '/':
-			if (_in->peek() == '/'){
-				tokval += GetChar();
-				while(GetChar() != '\n') ;
-				token = tComment;
-			} else { 
- 				token = tTermOp;
-			}
+ 			token = tFactOp;
       break;
 		case '|':
 			if (_in->peek() == '|') {
