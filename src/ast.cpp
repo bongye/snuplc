@@ -167,7 +167,25 @@ CAstStatement* CAstScope::GetStatementSequence(void) const
 
 bool CAstScope::TypeCheck(CToken *t, string *msg) const
 {
-  return true;
+	bool result = true;
+
+	try {
+		CAstStatement *s = _statseq;
+		while (result && (s != NULL)) {
+			result = s->TypeCheck(t, msg);
+			s = s->GetNext();
+		}
+
+		vector<CAstScope *>::const_iterator it = _children.begin();
+		while (result && (it != _children.end())) {
+			result = (*it)->TypeCheck(t, msg);
+			it++;
+		}
+	} catch (...) {
+		result = false;
+	}
+
+  return result;
 }
 
 ostream& CAstScope::print(ostream &out, int indent) const
@@ -378,6 +396,15 @@ CAstExpression* CAstStatAssign::GetRHS(void) const
 
 bool CAstStatAssign::TypeCheck(CToken *t, string *msg) const
 {
+	ostringstream ostr;
+	if (!_lhs->GetType()->Match(_rhs->GetType())) {
+		if (t != NULL) *t = _rhs->GetToken();
+		if (msg != NULL) {
+			ostr << "type mismatch between lhs(" << _lhs->GetType() << ") and rhs(" << _rhs->GetType() << ").";
+			*msg = ostr.str();
+		}
+		return false;
+	}
   return true;
 }
 
@@ -494,6 +521,30 @@ CAstExpression* CAstStatReturn::GetExpression(void) const
 
 bool CAstStatReturn::TypeCheck(CToken *t, string *msg) const
 {
+	const CType *st = GetScope()->GetType();
+	CAstExpression *e = GetExpression();
+
+	if (st->Match(CTypeManager::Get()->GetNull())) {
+		if (e != NULL) {
+			if (t != NULL) *t = e->GetToken();
+			if (msg != NULL) *msg = "superfluous expression after return.";
+			return false;
+		}
+	} else {
+		if (e == NULL) {
+			if (t != NULL) *t = GetToken();
+			if (msg != NULL) *msg = "expression expected after return.";
+			return false;
+		}
+
+		if (!e->TypeCheck(t, msg)) return false;
+
+		if (!st->Match(e->GetType())) {
+			if (t != NULL) *t = e->GetToken();
+			if (msg != NULL) *msg = "return type mismatch.";
+			return false;
+		}
+	}
   return true;
 }
 
@@ -576,7 +627,30 @@ CAstStatement* CAstStatIf::GetElseBody(void) const
 
 bool CAstStatIf::TypeCheck(CToken *t, string *msg) const
 {
-  return true;
+	bool result = true;
+	const CType *st = GetCondition()->GetType();
+	if (!st->IsBoolean()) {
+		if (t != NULL) *t = GetCondition()->GetToken();
+		if (msg != NULL) *msg = "condition should be boolean.";
+		return false;
+	}
+	
+	try {
+		CAstStatement *s = GetIfBody();
+		while (result && (s != NULL)) {
+			result = s->TypeCheck(t, msg);
+			s = s->GetNext();
+		}
+
+		s = GetElseBody();
+		while (result && (s != NULL)) {
+			result = s->TypeCheck(t, msg);
+			s = s->GetNext();
+		}
+	} catch (...) {
+		result = false;
+	}
+	return result;
 }
 
 ostream& CAstStatIf::print(ostream &out, int indent) const
@@ -676,7 +750,20 @@ CAstStatement* CAstStatWhile::GetBody(void) const
 
 bool CAstStatWhile::TypeCheck(CToken *t, string *msg) const
 {
-  return true;
+	bool result = true;
+	const CType *st = GetCondition()->GetType();
+	if (!st->IsBoolean()) {
+		if (t != NULL) *t = GetCondition()->GetToken();
+		if (msg != NULL) *msg = "condition should be boolean.";
+		return false;
+	}
+
+	CAstStatement *s = GetBody();
+	while (result && (s != NULL)) {
+		result = s->TypeCheck(t, msg);
+		s = s->GetNext();
+	}
+	return result;
 }
 
 ostream& CAstStatWhile::print(ostream &out, int indent) const
@@ -787,7 +874,78 @@ CAstExpression* CAstBinaryOp::GetRight(void) const
 
 bool CAstBinaryOp::TypeCheck(CToken *t, string *msg) const
 {
-  return true;
+	ostringstream ostr;
+	const CType *lt, *rt;
+	lt = _left->GetType();
+	rt = _right->GetType();
+
+	switch (GetOperation()) {
+		case opAdd:
+		case opSub:
+		case opMul:
+		case opDiv:
+		case opLessThan:
+		case opLessEqual:
+		case opBiggerThan:
+		case opBiggerEqual:
+			if (!lt->Match(CTypeManager::Get()->GetInt())){
+				if (t != NULL) *t = _left->GetToken();
+				if (msg != NULL) {
+					ostr << "expected " << CTypeManager::Get()->GetInt() << " , but " << lt;
+				 	*msg = ostr.str();
+				}
+				return false;
+			}	
+			if (!rt->Match(CTypeManager::Get()->GetInt())){
+				if (t != NULL) *t = _right->GetToken();
+				if (msg != NULL) {
+					ostr << "expected " << CTypeManager::Get()->GetInt() << " , but " << rt;
+				 	*msg = ostr.str();
+				}
+				return false;
+			}
+			break;
+		case opEqual:
+		case opNotEqual:
+			if (!lt->IsScalar()) {
+				if (t != NULL) *t = _left->GetToken();
+				if (msg != NULL) {
+					ostr << "expected " << CTypeManager::Get()->GetInt() << " or " << CTypeManager::Get()->GetBool() << " , but " << lt;
+				 	*msg = ostr.str();
+				}
+			}
+			if (!lt->Match(rt)) {
+				if (t != NULL) *t = _right->GetToken();
+				if (msg != NULL) {
+					ostr << "expected " << lt << " , but " << rt;
+				 	*msg = ostr.str();
+				}
+				return false;
+			}
+			break;
+		case opAnd:
+		case opOr:
+			if (!lt->IsBoolean()){
+				if (t != NULL) *t = _left->GetToken();
+				if (msg != NULL) {
+					ostr << "expected " << CTypeManager::Get()->GetBool() <<  " , but " << lt;
+				 	*msg = ostr.str();
+				}
+				return false;
+			}
+			if (!rt->IsBoolean()){
+				if (t != NULL) *t = _right->GetToken();
+				if (msg != NULL) {
+					ostr << "expected " << CTypeManager::Get()->GetBool() << " , but " << rt;
+				 	*msg = ostr.str();
+				}
+				return false;
+			}
+			break;
+		default:
+			break;
+	}
+	return true;
 }
 
 const CType* CAstBinaryOp::GetType(void) const
@@ -893,7 +1051,34 @@ CAstExpression* CAstUnaryOp::GetOperand(void) const
 
 bool CAstUnaryOp::TypeCheck(CToken *t, string *msg) const
 {
-  return true;
+	ostringstream ostr;
+	const CType *st = _operand->GetType();
+	
+	switch (GetOperation()) {
+		case opNeg:
+			if (!st->Match(CTypeManager::Get()->GetInt())) {
+				if (t != NULL) *t = _operand->GetToken();
+				if (msg != NULL){
+					ostr <<  " expected " << CTypeManager::Get()->GetInt() << ", but " << st;
+				 	*msg = ostr.str();
+				}
+				return false;
+			}
+			break;
+		case opNot:
+			if (!st->IsBoolean()) {
+				if (t != NULL) *t = _operand->GetToken();
+				if (msg != NULL){
+					ostr << " expected " << CTypeManager::Get()->GetBool() << ", but " << st;
+				 	*msg = ostr.str();
+				}
+				return false;
+			}
+			break;
+		default:
+			break;
+	}
+	return true;
 }
 
 const CType* CAstUnaryOp::GetType(void) const
@@ -983,7 +1168,31 @@ CAstExpression* CAstFunctionCall::GetArg(int index) const
 
 bool CAstFunctionCall::TypeCheck(CToken *t, string *msg) const
 {
-  return true;
+	bool result = true;
+	ostringstream ostr;
+
+	if (GetSymbol()->GetNParams() != GetNArgs()) {
+		if (t != NULL) *t = GetToken();
+		if (msg != NULL){
+			ostr << "number of params not matched." << GetSymbol()->GetNParams() << " expected but " << GetNArgs();
+		 	*msg = ostr.str();
+		}
+		return false;
+	}
+	try {
+		for (int i=0; i<GetNArgs(); i++){
+			result = result && GetArg(i)->TypeCheck(t, msg);
+			result = result && GetSymbol()->GetParam(i)->GetDataType()->Match(GetArg(i)->GetType());
+			if(!result) {
+				if (t != NULL) *t = GetArg(i)->GetToken();
+				if (msg != NULL) *msg = "param type mismatch.";
+				return false;
+			}
+		}
+	} catch (...) {
+		result = false;
+	}
+  return result;
 }
 
 const CType* CAstFunctionCall::GetType(void) const
@@ -1187,4 +1396,3 @@ CTacAddr* CAstConstant::ToTac(CCodeBlock *cb)
 {
   return NULL;
 }
-

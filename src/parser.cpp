@@ -318,11 +318,16 @@ CAstExpression* CParser::simpleexpr(CAstScope *s)
 	CToken t;
 	t = _scanner->Peek();
 	if(t.GetValue() == "+" || t.GetValue() == "-"){
-		Consume(tTermOp, &t);    
-    if (t.GetValue() == "+") n = term(s);
-    else {
-    	n = new CAstUnaryOp(t, opNeg, term(s));
+		Consume(tTermOp, &t);
+		n = term(s);
+		CAstConstant *c = dynamic_cast<CAstConstant *>(n);
+		if(c && c->GetType()->Match(CTypeManager::Get()->GetInt())) {
+			// overflow check
+			long long v = c->GetValue();
+			if(t.GetValue() == "-") v *= -1;
+			if(v < -1 * 2e31 || v > 2e31) SetError(t, "Integer Overflow.");
 		}
+    if (t.GetValue() == "-") n = new CAstUnaryOp(t, opNeg, n);
 	} else {
     n = term(s);
   }
@@ -622,6 +627,12 @@ CAstProcedure* CParser::subroutineDecl(CAstScope *s)
       while (_scanner->Peek().GetType() == tComma){
         Consume(tComma, &t);
         Consume(tIdent, &t);
+				for(int i=0; i<v.size(); i++){
+					CSymParam *c = v[i];
+					if(c->GetName() == t.GetValue()) {
+						SetError(t, "parameter symbol duplicated");
+					}
+				}
         symParam = new CSymParam(v.size(), t.GetValue(), CTypeManager::Get()->GetInt());
         v.push_back(symParam);
       }
