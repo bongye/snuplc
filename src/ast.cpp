@@ -397,8 +397,10 @@ CAstExpression* CAstStatAssign::GetRHS(void) const
 bool CAstStatAssign::TypeCheck(CToken *t, string *msg) const
 {
 	ostringstream ostr;
+	if (!_lhs->TypeCheck(t, msg)) return false;
+	if (!_rhs->TypeCheck(t, msg)) return false;
 	if (!_lhs->GetType()->Match(_rhs->GetType())) {
-		if (t != NULL) *t = _rhs->GetToken();
+		if (t != NULL) *t = GetToken();
 		if (msg != NULL) {
 			ostr << "type mismatch between lhs(" << _lhs->GetType() << ") and rhs(" << _rhs->GetType() << ").";
 			*msg = ostr.str();
@@ -628,6 +630,8 @@ CAstStatement* CAstStatIf::GetElseBody(void) const
 bool CAstStatIf::TypeCheck(CToken *t, string *msg) const
 {
 	bool result = true;
+
+	if (!GetCondition()->TypeCheck(t, msg)) return false;
 	const CType *st = GetCondition()->GetType();
 	if (!st->IsBoolean()) {
 		if (t != NULL) *t = GetCondition()->GetToken();
@@ -751,6 +755,7 @@ CAstStatement* CAstStatWhile::GetBody(void) const
 bool CAstStatWhile::TypeCheck(CToken *t, string *msg) const
 {
 	bool result = true;
+	if (!GetCondition()->TypeCheck(t, msg)) return false;
 	const CType *st = GetCondition()->GetType();
 	if (!st->IsBoolean()) {
 		if (t != NULL) *t = GetCondition()->GetToken();
@@ -875,6 +880,9 @@ CAstExpression* CAstBinaryOp::GetRight(void) const
 bool CAstBinaryOp::TypeCheck(CToken *t, string *msg) const
 {
 	ostringstream ostr;
+	if (!_left->TypeCheck(t, msg)) return false;
+	if (!_right->TypeCheck(t, msg)) return false;
+
 	const CType *lt, *rt;
 	lt = _left->GetType();
 	rt = _right->GetType();
@@ -891,7 +899,7 @@ bool CAstBinaryOp::TypeCheck(CToken *t, string *msg) const
 			if (!lt->Match(CTypeManager::Get()->GetInt())){
 				if (t != NULL) *t = _left->GetToken();
 				if (msg != NULL) {
-					ostr << "expected " << CTypeManager::Get()->GetInt() << " , but " << lt;
+					ostr << "expected " << CTypeManager::Get()->GetInt() << ", but " << lt;
 				 	*msg = ostr.str();
 				}
 				return false;
@@ -899,7 +907,7 @@ bool CAstBinaryOp::TypeCheck(CToken *t, string *msg) const
 			if (!rt->Match(CTypeManager::Get()->GetInt())){
 				if (t != NULL) *t = _right->GetToken();
 				if (msg != NULL) {
-					ostr << "expected " << CTypeManager::Get()->GetInt() << " , but " << rt;
+					ostr << "expected " << CTypeManager::Get()->GetInt() << ", but " << rt;
 				 	*msg = ostr.str();
 				}
 				return false;
@@ -910,14 +918,14 @@ bool CAstBinaryOp::TypeCheck(CToken *t, string *msg) const
 			if (!lt->IsScalar()) {
 				if (t != NULL) *t = _left->GetToken();
 				if (msg != NULL) {
-					ostr << "expected " << CTypeManager::Get()->GetInt() << " or " << CTypeManager::Get()->GetBool() << " , but " << lt;
+					ostr << "expected " << CTypeManager::Get()->GetInt() << " or " << CTypeManager::Get()->GetBool() << ", but " << lt;
 				 	*msg = ostr.str();
 				}
 			}
 			if (!lt->Match(rt)) {
 				if (t != NULL) *t = _right->GetToken();
 				if (msg != NULL) {
-					ostr << "expected " << lt << " , but " << rt;
+					ostr << "expected " << lt << ", but " << rt;
 				 	*msg = ostr.str();
 				}
 				return false;
@@ -928,7 +936,7 @@ bool CAstBinaryOp::TypeCheck(CToken *t, string *msg) const
 			if (!lt->IsBoolean()){
 				if (t != NULL) *t = _left->GetToken();
 				if (msg != NULL) {
-					ostr << "expected " << CTypeManager::Get()->GetBool() <<  " , but " << lt;
+					ostr << "expected " << CTypeManager::Get()->GetBool() <<  ", but " << lt;
 				 	*msg = ostr.str();
 				}
 				return false;
@@ -936,7 +944,7 @@ bool CAstBinaryOp::TypeCheck(CToken *t, string *msg) const
 			if (!rt->IsBoolean()){
 				if (t != NULL) *t = _right->GetToken();
 				if (msg != NULL) {
-					ostr << "expected " << CTypeManager::Get()->GetBool() << " , but " << rt;
+					ostr << "expected " << CTypeManager::Get()->GetBool() << ", but " << rt;
 				 	*msg = ostr.str();
 				}
 				return false;
@@ -962,18 +970,19 @@ const CType* CAstBinaryOp::GetType(void) const
     case opSub:
     case opMul:
     case opDiv:
-    case opAnd:
-    case opOr:
-      if (lt->IsScalar() && lt->Match(rt)) t = lt;
+      if (lt->IsScalar() && !lt->IsBoolean() && lt->Match(rt)) t = lt;
       break;
 
     // relational operator
     case opEqual:
     case opNotEqual:
-      if (lt->IsBoolean() && rt->IsBoolean()) {
-        t = lt;
-        break;
-      }
+			if (lt->IsScalar() && lt->Match(rt)) t = CTypeManager::Get()->GetBool();
+			break;
+
+		case opAnd:
+    case opOr:
+      if (lt->IsBoolean() && rt->IsBoolean()) t = lt;
+      break;
       // else fallthrough
 
     case opLessThan:
@@ -1052,6 +1061,7 @@ CAstExpression* CAstUnaryOp::GetOperand(void) const
 bool CAstUnaryOp::TypeCheck(CToken *t, string *msg) const
 {
 	ostringstream ostr;
+	if (!_operand->TypeCheck(t, msg)) return false;
 	const CType *st = _operand->GetType();
 	
 	switch (GetOperation()) {
@@ -1174,7 +1184,7 @@ bool CAstFunctionCall::TypeCheck(CToken *t, string *msg) const
 	if (GetSymbol()->GetNParams() != GetNArgs()) {
 		if (t != NULL) *t = GetToken();
 		if (msg != NULL){
-			ostr << "number of params not matched." << GetSymbol()->GetNParams() << " expected but " << GetNArgs();
+			ostr << "number of params not matched. " << GetSymbol()->GetNParams() << " expected but " << GetNArgs();
 		 	*msg = ostr.str();
 		}
 		return false;
@@ -1182,6 +1192,8 @@ bool CAstFunctionCall::TypeCheck(CToken *t, string *msg) const
 	try {
 		for (int i=0; i<GetNArgs(); i++){
 			result = result && GetArg(i)->TypeCheck(t, msg);
+			if(!result) return false;
+
 			result = result && GetSymbol()->GetParam(i)->GetDataType()->Match(GetArg(i)->GetType());
 			if(!result) {
 				if (t != NULL) *t = GetArg(i)->GetToken();

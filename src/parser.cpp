@@ -325,11 +325,20 @@ CAstExpression* CParser::simpleexpr(CAstScope *s)
 			// overflow check
 			long long v = c->GetValue();
 			if(t.GetValue() == "-") v *= -1;
-			if(v < -1 * 2e31 || v > 2e31) SetError(t, "Integer Overflow.");
+			if(v < (-1L << 31) || v > (~0U >> 1)) SetError(t, "Integer Overflow.");
 		}
+
     if (t.GetValue() == "-") n = new CAstUnaryOp(t, opNeg, n);
 	} else {
     n = term(s);
+		
+		CAstConstant *c = dynamic_cast<CAstConstant *>(n);
+		if(c && c->GetType()->Match(CTypeManager::Get()->GetInt())) {
+			// overflow check
+			long long v = c->GetValue();
+			if(t.GetValue() == "-") v *= -1;
+			if(v < (-1L << 31) || v > (~0U >> 1)) SetError(t, "Integer Overflow.");
+		}
   }
 
   while (_scanner->Peek().GetType() == tTermOp){    
@@ -407,7 +416,7 @@ CAstStatCall* CParser::subroutineCall(CAstScope *s)
 	CAstFunctionCall *call = NULL;
 
 	identifier = ident(s);
-	call = new CAstFunctionCall(t, (CSymProc *)identifier->GetSymbol());
+	call = new CAstFunctionCall(identifier->GetToken(), (CSymProc *)identifier->GetSymbol());
 
 	Consume(tLBrak, &t);
 	
@@ -575,10 +584,13 @@ void CParser::varDeclaration(CAstScope *s)
     Consume(tVar, &t);
     while(_scanner->Peek().GetType() == tIdent){
       Consume(tIdent, &t);
+			if(symTab->FindSymbol(t.GetValue(), sLocal)) SetError(t, "Multiple definition.");
       v.push_back(t.GetValue());
+
       while(_scanner->Peek().GetType() == tComma){
         Consume(tComma, &t);
         Consume(tIdent, &t);
+				if(symTab->FindSymbol(t.GetValue(), sLocal)) SetError(t, "Multiple definition.");
         v.push_back(t.GetValue());
       }
       Consume(tColon, &t);
