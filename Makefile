@@ -9,25 +9,30 @@ DEPS=scanner.h \
 		 type.h \
 		 symtab.h \
 		 ast.h \
-		 ir.h
+		 ir.h \
+		 backend.h
 SCANNER=scanner.cpp
 PARSER=parser.cpp \
 			 type.cpp \
 			 symtab.cpp \
 			 ast.cpp \
 			 ir.cpp
+IR=
+BACKEND=backend.cpp
 
 DEPS_=$(patsubst %,$(SRC_DIR)/%,$(DEPS))
 OBJ_SCANNER=$(patsubst %.cpp,$(OBJ_DIR)/%.o,$(SCANNER))
 OBJ_PARSER=$(patsubst %.cpp,$(OBJ_DIR)/%.o,$(PARSER) $(SCANNER))
 OBJ_IR=$(patsubst %.cpp,$(OBJ_DIR)/%.o,$(IR) $(PARSER) $(SCANNER))
+OBJ_SNUPLC=$(patsubst %.cpp,$(OBJ_DIR)/%.o, \
+					 $(BACKEND) $(IR) $(PARSER) $(SCANNER))
 
 .PHONY: clean doc
 
 $(OBJ_DIR)/%.o: $(SRC_DIR)/%.cpp $(DEPS_)
 	$(CC) $(CCFLAGS) -c -o $@ $<
 
-all: test_scanner test_parser test_ir
+all: snuplc
 
 test_scanner: $(OBJ_DIR)/test_scanner.o $(OBJ_SCANNER)
 	$(CC) $(CCFLAGS) -o $@ $(OBJ_DIR)/test_scanner.o $(OBJ_SCANNER)
@@ -38,11 +43,14 @@ test_parser: $(OBJ_DIR)/test_parser.o $(OBJ_PARSER)
 test_ir: $(OBJ_DIR)/test_ir.o $(OBJ_IR)
 	$(CC) $(CCFLAGS) -o $@ $(OBJ_DIR)/test_ir.o $(OBJ_IR)
 
+snuplc: $(OBJ_DIR)/snuplc.o $(OBJ_SNUPLC)
+	$(CC) $(CCFLAGS) -o $@ $(OBJ_DIR)/snuplc.o $(OBJ_SNUPLC)
+
 doc:
 	doxygen
 
 clean:
-	rm -rf $(OBJ_DIR)/*.o test_scanner test_parser test_ir
+	rm -rf $(OBJ_DIR)/*.o test_scanner test_parser test_ir snuplc
 
 mrproper: clean
 	rm -rf doc/*

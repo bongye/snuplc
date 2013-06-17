@@ -3,9 +3,10 @@
 /// @author Bernhard Egger <bernhard@csap.snu.ac.kr>
 /// @section changelog Change Log
 /// 2012/11/28 Bernhard Egger created
+/// 2013/06/09 Bernhard Egger adapted to SnuPL/0
 ///
 /// @section license_section License
-/// Copyright (c) 2012, Bernhard Egger
+/// Copyright (c) 2012,2013 Bernhard Egger
 /// All rights reserved.
 ///
 /// Redistribution and use in source and binary forms,  with or without modifi-
@@ -30,8 +31,8 @@
 /// DAMAGE.
 //------------------------------------------------------------------------------
 
-#ifndef __SnuPL_BACKEND_H__
-#define __SnuPL_BACKEND_H__
+#ifndef __SnuPL0_BACKEND_H__
+#define __SnuPL0_BACKEND_H__
 
 #include <iostream>
 #include <vector>
@@ -52,7 +53,7 @@ class CBackend {
     /// @name constructors/destructors
     /// @{
 
-    CBackend(void);
+    CBackend(ostream &out);
     virtual ~CBackend(void);
 
     /// @}
@@ -60,12 +61,24 @@ class CBackend {
     /// @name output method
     /// @{
 
-    virtual bool Emit(CModule *m) = 0;
+    virtual bool Emit(CModule *m);
 
     /// @}
 
   protected:
+    /// @name detailed output methods
+    /// @{
+
+    virtual void EmitHeader(void);
+    virtual void EmitCode(void);
+    virtual void EmitData(void);
+    virtual void EmitFooter(void);
+
+    /// @}
+
+
     CModule *_m;                    ///< module
+    ostream &_out;                  ///< output stream
 };
 
 
@@ -79,75 +92,81 @@ class CBackendx86 : public CBackend {
     /// @name constructors/destructors
     /// @{
 
-    CBackendx86(const string fn);
+    CBackendx86(ostream &out);
     virtual ~CBackendx86(void);
 
     /// @}
 
-    /// @name output method
+  protected:
+    /// @name detailed output methods
     /// @{
 
-    virtual bool Emit(CModule *m);
+    virtual void EmitHeader(void);
+    virtual void EmitCode(void);
+    virtual void EmitData(void);
+    virtual void EmitFooter(void);
 
     /// @}
 
-  protected:
+    /// @name additional methods
+    /// @{
 
-    /// @name 
-    /// @[
+    /// @brief set the current scope
+    void SetScope(CScope *scope);
+
+    /// @brief get the current scope
+    CScope* GetScope(void) const;
 
     /// @brief emit a scope
-    bool EmitScope(CScope *s);
+    virtual void EmitScope(CScope *scope);
 
     /// @brief emit global data
-    bool EmitGlobals(CScope *s);
+    virtual void EmitGlobalData(CScope *s);
 
     /// @brief emit a code block
-    bool EmitCodeBlock(CCodeBlock *cb, CSymtab *symtab);
+    virtual void EmitCodeBlock(CCodeBlock *cb, CSymtab *symtab);
+
 
     /// @brief emit an instruction
     /// @param label controls if the instruction needs a target label or not
-    bool EmitInstruction(CTacInstr *i, CSymtab *symtab, bool label);
+    virtual void EmitInstruction(CTacInstr *i, CSymtab *symtab);
+
 
     /// @brief emit an instruction
-    bool EmitInstruction(string mnemonic, string args="", string comment="",
-                         string label="");
+    virtual void EmitInstruction(string mnemonic, string args="",
+                                 string comment="");
 
     /// @brief return an operand string for @a op
     string Operand(CTac *op) const;
 
-    /// @brief return a local label for @a id
-    string Label(int id) const;
-
     /// @brief return an immediate for @a value
     string Imm(int value) const;
 
-    /// @brief return the inverse operation for a binary comparison operation
-    EOperation Inverse(EOperation cond) const;
+    /// @brief return a x86-label for CTaclabel @a label
+    string Label(CTacLabel *label) const;
+
+    /// @brief return a x86-label for string @a label
+    string Label(string label) const;
 
     /// @brief return the condition suffix for a binary comparison operation
     string Condition(EOperation cond) const;
 
     /// @brief compute the location of local variables, temporaries and
     ///        arguments on the stack. Returns the total size occupied on
-    ///        the stack as well as the the number of arguments for this 
+    ///        the stack as well as the the number of arguments for this
     ///        scope (if @a nargs is not NULL)
     /// @param symtab symbol table
     /// @param param_ofs offset to parameters from base pointer after epilogue
     /// @param local_ofs offset to local vars from base pointer after epilogue
-    /// @param nargs [output] returns the number of arguments for this scope
-    size_t ComputeStackOffsets(CSymtab *symtab, int param_ofs, int local_ofs,
-                               unsigned int *nargs);
+    size_t ComputeStackOffsets(CSymtab *symtab, int param_ofs, int local_ofs);
 
     /// @}
 
-  private:
-    CModule *_m;                    ///< module
-    ostream *out;                   ///< output stream
-
+    string _ind;                    ///< indentation
+    CScope *_curr_scope;            ///< current scope
 };
 
 
 
 
-#endif // __SnuPL_BACKEND_H__
+#endif // __SnuPL0_BACKEND_H__

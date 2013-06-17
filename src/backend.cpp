@@ -3,9 +3,10 @@
 /// @author Bernhard Egger <bernhard@csap.snu.ac.kr>
 /// @section changelog Change Log
 /// 2012/11/28 Bernhard Egger created
+/// 2013/06/09 Bernhard Egger adapted to SnuPL/0
 ///
 /// @section license_section License
-/// Copyright (c) 2012, Bernhard Egger
+/// Copyright (c) 2012,2013 Bernhard Egger
 /// All rights reserved.
 ///
 /// Redistribution and use in source and binary forms,  with or without modifi-
@@ -42,7 +43,8 @@ using namespace std;
 //------------------------------------------------------------------------------
 // CBackend
 //
-CBackend::CBackend(void)
+CBackend::CBackend(ostream &out)
+  : _out(out)
 {
 }
 
@@ -50,281 +52,384 @@ CBackend::~CBackend(void)
 {
 }
 
+bool CBackend::Emit(CModule *m)
+{
+  assert(m != NULL);
+  _m = m;
+
+  if (!_out.good()) return false;
+
+  bool res = true;
+
+  try {
+    EmitHeader();
+    EmitCode();
+    EmitData();
+    EmitFooter();
+
+    res = _out.good();
+  } catch (...) {
+    res = false;
+  }
+
+  return res;
+}
+
+void CBackend::EmitHeader(void)
+{
+}
+
+void CBackend::EmitCode(void)
+{
+}
+
+void CBackend::EmitData(void)
+{
+}
+
+void CBackend::EmitFooter(void)
+{
+}
+
 
 //------------------------------------------------------------------------------
 // CBackendx86
 //
-CBackendx86::CBackendx86(const string fn)
+CBackendx86::CBackendx86(ostream &out)
+  : CBackend(out), _curr_scope(NULL)
 {
-  out = new ofstream(fn);
+  _ind = string(4, ' ');
 }
 
 CBackendx86::~CBackendx86(void)
 {
-  delete out;
 }
 
-bool CBackendx86::Emit(CModule *m)
+void CBackendx86::EmitHeader(void)
 {
-  assert(m != NULL);
-  assert(out != NULL);
+  _out << "##################################################" << endl
+       << "# " << _m->GetName() << endl
+       << "#" << endl
+       << endl;
+}
 
-  _m = m;
-
-  if (!out->good()) return false;
-
-  *out << "# " << m->GetName() << endl
-       << "        .text" << endl
-       << "        .align 4" << endl
+void CBackendx86::EmitCode(void)
+{
+  _out << _ind << "#-----------------------------------------" << endl
+       << _ind << "# text section" << endl
+       << _ind << "#" << endl
+       << _ind << ".text" << endl
+       << _ind << ".align 4" << endl
        << endl
-       << "        .global main" << endl
-       << "        .extern Input" << endl
-       << "        .extern Output" << endl
+       << _ind << "# entry point and pre-defined functions" << endl
+       << _ind << ".global main" << endl
+       << _ind << ".extern Input" << endl
+       << _ind << ".extern Output" << endl
        << endl;
 
-  EmitScope(m);
+  // TODO
+	vector<CScope *>::const_iterator sit = _m->GetSubscopes().begin();
+	while (sit != _m->GetSubscopes().end()) EmitScope(*sit++);
+	EmitScope(_m);
 
-
-  *out << "        .data" << endl
-       << "        .align 4" << endl
+  _out << _ind << "# end of text section" << endl
+       << _ind << "#-----------------------------------------" << endl
        << endl;
-
-  EmitGlobals(m);
-
-  *out << "        .end" << endl;
-
-  return out->good();
 }
 
-
-bool CBackendx86::EmitScope(CScope *s)
+void CBackendx86::EmitData(void)
 {
-  assert(s != NULL);
+  _out << _ind << "#-----------------------------------------" << endl
+       << _ind << "# global data section" << endl
+       << _ind << "#" << endl
+       << _ind << ".data" << endl
+       << _ind << ".align 4" << endl
+       << endl;
+
+  // TODO
+	EmitGlobalData(_m);
+
+  _out << _ind << "# end of global data section" << endl
+       << _ind << "#-----------------------------------------" << endl
+       << endl;
+}
+
+void CBackendx86::EmitFooter(void)
+{
+  _out << _ind << ".end" << endl
+       << "##################################################" << endl;
+}
+
+void CBackendx86::SetScope(CScope *scope)
+{
+  _curr_scope = scope;
+}
+
+CScope* CBackendx86::GetScope(void) const
+{
+  return _curr_scope;
+}
+
+void CBackendx86::EmitScope(CScope *scope)
+{
+  assert(scope != NULL);
 
   string label;
 
-  if (s->GetParent() == NULL) label = "main";
-  else label = s->GetName();
+  if (scope->GetParent() == NULL) label = "main";
+  else label = scope->GetName();
 
   // label
-  *out << "    # scope " << s->GetName() << endl
+  _out << _ind << "# scope " << scope->GetName() << endl
        << label << ":" << endl;
 
-  // prologue
-  EmitInstruction("push", "%ebp");
-  EmitInstruction("movl", "%esp, %ebp");
-  EmitInstruction("push", "%ebx");
-  EmitInstruction("push", "%esi");
-  EmitInstruction("push", "%edi");
+  // TODO
+	SetScope(scope);
 
+	// prologue
+	EmitInstruction("pushl", "%ebp");
+	EmitInstruction("movl", "%esp, %ebp");
+	EmitInstruction("pushl", "%ebx");
+	EmitInstruction("pushl", "%esi");
+	EmitInstruction("pushl", "%edi");
 
-  // compute the size of locals
-  CSymtab *st = s->GetSymbolTable();
-  assert(st != NULL);
+	// compute the size of locals
+	CSymtab *symbolTable = scope->GetSymbolTable();
+	assert(symbolTable != NULL);
 
-  unsigned int nargs = 0;
-  size_t size = ComputeStackOffsets(st, 8, -12, &nargs);
+	size_t size = ComputeStackOffsets(symbolTable, 8, -12);
+	EmitInstruction("subl", Imm(size) + ", %esp", "make room for locals");
+	_out << endl;
+	
+	CCodeBlock *cb = scope->GetCodeBlock();
+	EmitCodeBlock(cb, symbolTable);
+	
+	// epilogue
+	_out << endl;
+	_out << Label("exit") << ":" << endl;
 
-  // align at 32-byte boundaries
-  // after the prologue, the following data is on the stack
-  // - arguments (4 bytes each)
-  // - return address (4 bytes)
-  // - 4 registers (ebp, ebx, esi, edi, 4 bytes each)
-  // = 20 + 4*#args
-
-  // add the required size and round up to the next multiple of 32:
-  size = (((size + 20 + nargs*4) + 31) / 32) * 32 - (20 + nargs*4);
-
-  if (size != 0) {
-    EmitInstruction("subl", Imm(size) + ", %esp", "align at 32-byte boundary");
-  }
-  *out << endl;
-
-  CCodeBlock *cb = s->GetCodeBlock();
-
-  while (cb != NULL) {
-    EmitCodeBlock(cb, st);
-    cb = cb->GetNext();
-  }
-
-
-  // epilogue
-  *out << endl;
-  if (size != 0) EmitInstruction("addl", Imm(size) + ", %esp");
-  EmitInstruction("pop", "%edi");
-  EmitInstruction("pop", "%esi");
-  EmitInstruction("pop", "%ebx");
-  EmitInstruction("pop", "%ebp");
-  EmitInstruction("ret");
-  *out << endl;
-
-  *out << endl;
-
-  const vector<CScope*> &proc = s->GetSubscopes();
-  for (size_t p=0; p<proc.size(); p++) EmitScope(proc[p]);
-
-  return out->good();
+	EmitInstruction("addl", Imm(size) + ", %esp", "remove locals");
+	EmitInstruction("popl", "%edi");
+	EmitInstruction("popl", "%esi");
+	EmitInstruction("popl", "%ebx");
+	EmitInstruction("popl", "%ebp");
+	EmitInstruction("ret");
+  
+	_out << endl;
 }
 
-bool CBackendx86::EmitGlobals(CScope *s)
+void CBackendx86::EmitGlobalData(CScope *scope)
 {
-  assert(s != NULL);
+  assert(scope != NULL);
 
-  CSymtab *st = s->GetSymbolTable();
-  assert(st != NULL);
+  _out << _ind << "# scope: " << scope->GetName() << endl;
 
-  vector<CSymbol*> slist = st->GetSymbols();
+  // emit the globals for the current scope
+  // TODO
+	CSymtab *symbolTable = scope->GetSymbolTable();
+	assert(symbolTable != NULL);
 
-  for (size_t i=0; i<slist.size(); i++) {
-    CSymbol *s = slist[i];
-    const CType *t = s->GetDataType();
+	vector<CSymbol *> symbols = symbolTable->GetSymbols();
+	for (size_t i=0; i<symbols.size(); i++) {
+		CSymbol *symbol = symbols[i];
+		const CType *t = symbol->GetDataType();
 
-    if (s->GetSymbolType() == stGlobal) {
-      *out << left << setw(7) << s->GetName() + ":" << " "
-           << ".skip " << dec << right << setw(4) << t->GetSize()
-           << "                  # " << t
-           << endl;
-    }
-  }
+		if (symbol->GetSymbolType() == stGlobal) {
+			_out << left << setw(7) << symbol->GetName() + ":" << " " 
+					 << setw(7) << ".skip" << " " 
+					 << setw(16) << (t->GetSize() + 3) / 4 * 4;
+			_out << " # " << t;
+			_out << endl;
+		}
+	}
+	_out << endl;
 
-  *out << endl;
-
-  return out->good();
+  // emit globals in subscopes (necessary if we support static local variables)
+  vector<CScope*>::const_iterator sit = scope->GetSubscopes().begin();
+  while (sit != scope->GetSubscopes().end()) EmitGlobalData(*sit++);
 }
 
-bool CBackendx86::EmitCodeBlock(CCodeBlock *cb, CSymtab *symtab)
+void CBackendx86::EmitCodeBlock(CCodeBlock *cb, CSymtab *symtab)
 {
   assert(cb != NULL);
   assert(symtab != NULL);
 
-  EmitInstruction(string("# " + cb->GetName()));
+  const list<CTacInstr*> &instr = cb->GetInstr();
+  list<CTacInstr*>::const_iterator it = instr.begin();
 
-  const vector<CTacInstr*> &instr = cb->GetInstr();
-  vector<CTacInstr*>::const_iterator it = instr.begin();
-  bool first = true;
-  while (it != instr.end()) {
-    EmitInstruction(*it++, symtab, first);
-    first = false;
-  }
-
-  return out->good();
+  while (it != instr.end()) EmitInstruction(*it++, symtab);
 }
 
-bool CBackendx86::EmitInstruction(CTacInstr *i, CSymtab *symtab, bool label)
+void CBackendx86::EmitInstruction(CTacInstr *i, CSymtab *symtab)
 {
   assert(i != NULL);
   assert(symtab != NULL);
 
-  string lbl = (label ? Label(i->GetId())+":" : "");
+  ostringstream cmt;
+  cmt << i;
 
-  CTacTemp *t;
-  CTacName *n;
-  static EOperation lastCmp;
+	CTacTemp *tmp;
+	CTacName *name;
+	int nParams;
 
   EOperation op = i->GetOperation();
   switch (op) {
-    case opAssign:
-      EmitInstruction("movl", Operand(i->GetSrc(1)) + ", %eax", "", lbl);
-      EmitInstruction("movl", "%eax," + Operand(i->GetDest()));
+    // binary operators
+    // dst = src1 op src2
+    // TODO
+
+		case opAdd:
+		case opSub:
+			EmitInstruction("movl", Operand(i->GetSrc(1)) + ", %eax", cmt.str());
+			EmitInstruction((op == opAdd) ? "addl" : "subl", Operand(i->GetSrc(2)) + ", %eax");
+			tmp = dynamic_cast<CTacTemp *>(i->GetDest());
+			assert(tmp != NULL);
+			EmitInstruction("movl", "%eax, " + Operand(tmp));
+			break;
+
+		case opMul:
+			EmitInstruction("movl", Operand(i->GetSrc(1)) + ", %eax", cmt.str());
+			EmitInstruction("imull", Operand(i->GetSrc(2)));
+			tmp = dynamic_cast<CTacTemp *>(i->GetDest());
+			assert(tmp != NULL);
+			EmitInstruction("movl", "%eax, " + Operand(tmp));
+			break;
+
+		case opDiv:
+			EmitInstruction("movl", Operand(i->GetSrc(1)) + ", %eax", cmt.str());
+			EmitInstruction("cdq", "");
+			EmitInstruction("idivl", Operand(i->GetSrc(2)));
+			tmp = dynamic_cast<CTacTemp *>(i->GetDest());
+			assert(tmp != NULL);
+			EmitInstruction("movl", "%eax, " + Operand(tmp));
+			break;
+
+    // unary operators
+    // dst = op src1
+    // TODO
+
+		case opNeg:
+			EmitInstruction("movl", Operand(i->GetSrc(1)) + ", %eax", cmt.str());
+			EmitInstruction("negl", "%eax");
+			tmp = dynamic_cast<CTacTemp *>(i->GetDest());
+			assert(tmp != NULL);
+			EmitInstruction("movl", "%eax, " + Operand(tmp));
+			break;
+
+    // memory operations
+    // dst = src1
+    // TODO
+		case opAssign:
+			EmitInstruction("movl", Operand(i->GetSrc(1)) + ", %eax", cmt.str());
+			EmitInstruction("movl", "%eax, " + Operand(i->GetDest()));
+			break;
+
+    // unconditional branching
+    // goto dst
+    // TODO
+		case opGoto:
+			EmitInstruction("jmp", Operand(i->GetDest()), cmt.str());
+			break;
+
+    // conditional branching
+    // if src1 relOp src2 then goto dst
+    // TODO
+		case opEqual:
+		case opNotEqual:
+		case opLessThan:
+		case opLessEqual:
+		case opBiggerThan:
+		case opBiggerEqual:
+			EmitInstruction("movl", Operand(i->GetSrc(1)) + ", %eax", cmt.str());
+			EmitInstruction("cmpl", Operand(i->GetSrc(2)) + ", %eax" );
+			EmitInstruction("j" + Condition(op), Operand(i->GetDest()));
+			break;
+
+    // function call-related operations
+    // TODO
+		case opParam:
+			EmitInstruction("movl", Operand(i->GetSrc(1)) + ", %eax", cmt.str());
+			EmitInstruction("pushl", "%eax");
+			break;
+
+		case opCall:
+			EmitInstruction("call", Operand(i->GetSrc(1)), cmt.str());
+
+			name = dynamic_cast<CTacName *>(i->GetSrc(1));
+			tmp = dynamic_cast<CTacTemp *>(i->GetDest());
+			assert(name != NULL);
+			nParams = dynamic_cast<const CSymProc *>(name->GetSymbol())->GetNParams();
+			if (nParams > 0 ) EmitInstruction("addl", Imm(nParams * 4) + ", %esp", "");
+			if (tmp != NULL) EmitInstruction("movl", "%eax, " + Operand(tmp));
+			break;
+
+    // special
+    case opLabel:
+      _out << Label(dynamic_cast<CTacLabel*>(i)) << ":" << endl;
       break;
 
-    case opAdd:
-    case opSub:
-      EmitInstruction("movl", Operand(i->GetSrc(1)) + ", %eax", "", lbl);
-      EmitInstruction(op == opAdd ? "addl" : "subl",
-                      Operand(i->GetSrc(2)) + ", %eax");
-      t = dynamic_cast<CTacTemp*>(i->GetDest());
-      assert(t != NULL);
-      t->SetRegister("%eax");
+    case opNop:
+      EmitInstruction("nop", "", cmt.str());
       break;
-
-    case opParam:
-      EmitInstruction("movl", Operand(i->GetSrc(2)) + ", %eax", "", lbl);
-      EmitInstruction("push", "%eax");
-      break;
-
-    case opCall:
-      EmitInstruction("call", Operand(i->GetSrc(1)), "", lbl);
-      n = dynamic_cast<CTacName*>(i->GetSrc(1));
-      t = dynamic_cast<CTacTemp*>(i->GetDest());
-      assert(n != NULL);
-      EmitInstruction("addl", 
-          Imm(dynamic_cast<const CSymProc*>(n->GetSymbol())->GetNParams()*4) +
-              ", %esp");
-      if (t != NULL) t->SetRegister("%eax");
-      break;
-
-    case opGoto:
-      EmitInstruction("jmp", Operand(i->GetDest()), "", lbl);
-      break;
-
-    case opEqual:
-    case opNotEqual:
-    case opLessThan:
-    case opLessEqual:
-    case opBiggerThan:
-    case opBiggerEqual:
-      EmitInstruction("movl", Operand(i->GetSrc(1)) + ", %eax", "", lbl);
-      EmitInstruction("cmpl", Operand(i->GetSrc(2)) + ", %eax");
-
-      lastCmp = i->GetOperation();
-      break;
-
-    case opIfNot:
-      lastCmp = Inverse(lastCmp);
-    case opIf:
-      EmitInstruction("j"+Condition(lastCmp), Operand(i->GetDest()), "", lbl);
-      break;
+		
+		case opReturn:
+			if (i->GetSrc(1) != NULL) EmitInstruction("movl", Operand(i->GetSrc(1)) + ", %eax", cmt.str());
+			EmitInstruction("jmp", Label("exit"));
+			break;
 
     default:
-      EmitInstruction("# ???", "", "", lbl);
-  }
-
-
-  return out->good();
+      EmitInstruction("# ???", "not implemented", cmt.str());
+	}
 }
 
-bool CBackendx86::EmitInstruction(string mnemonic, string args, string comment,
-                                  string label)
+void CBackendx86::EmitInstruction(string mnemonic, string args, string comment)
 {
-  *out << left
-       << setw(7) << label << " "
+  _out << left
+       << _ind
        << setw(7) << mnemonic << " "
        << setw(23) << args;
-  if (comment != "") *out << " # " << comment;
-  *out << endl;
-
-  return out->good();
+  if (comment != "") _out << " # " << comment;
+  _out << endl;
 }
 
 string CBackendx86::Operand(CTac *op) const
 {
-  CTacName *n;
-  CTacConst *c;
-  CTacTemp *t;
-  CTacInstr *i;
+  string operand;
 
-  if ((c = dynamic_cast<CTacConst*>(op)) != NULL) {
-    return Imm(c->GetValue());
-  } else
-  if ((n = dynamic_cast<CTacName*>(op)) != NULL) {
-    const CSymbol *s = n->GetSymbol();
-    return s->GetName();
-  } else
-  if ((t = dynamic_cast<CTacTemp*>(op)) != NULL) {
-    return t->GetRegister();
-  } else
-  if ((i = dynamic_cast<CTacInstr*>(op)) != NULL) {
-    return Label(i->GetId());
-  } else
-    return "?";
-}
+	CTacName *n;
+	CTacConst *c;
+	CTacTemp *t;
+	CTacLabel *l;
 
-string CBackendx86::Label(int id) const
-{
-  ostringstream o;
-  o << ".L" << dec << id;
-  return o.str();
+  // TODO
+	if ((c = dynamic_cast<CTacConst *>(op)) != NULL) {
+		return Imm(c->GetValue());
+	}
+	if ((t = dynamic_cast<CTacTemp *>(op)) != NULL) {
+		const CSymbol *s = t->GetSymbol();
+		ESymbolType st = s->GetSymbolType();
+		ostringstream ostr;
+		if (st == stLocal) {
+			ostr << s->GetOffset() << "(" << s->GetBaseRegister() << ")";
+			operand = ostr.str();
+		}
+	}
+	if ((n = dynamic_cast<CTacName *>(op)) != NULL) {
+		const CSymbol *s = n->GetSymbol();
+		ESymbolType st = s->GetSymbolType();
+		ostringstream ostr;
+		if (st == stLocal || st == stParam) {
+			ostr << s->GetOffset() << "(" << s->GetBaseRegister() << ")";
+			operand = ostr.str();
+		} else {
+			operand = s->GetName();
+		}
+	}
+	if ((l = dynamic_cast<CTacLabel *>(op)) != NULL) {
+		return Label(l);
+	}
+
+  return operand;
 }
 
 string CBackendx86::Imm(int value) const
@@ -334,17 +439,22 @@ string CBackendx86::Imm(int value) const
   return o.str();
 }
 
-EOperation CBackendx86::Inverse(EOperation cond) const
+string CBackendx86::Label(CTacLabel* label) const
 {
-  switch (cond) {
-    case opEqual:       return opNotEqual;
-    case opNotEqual:    return opEqual;
-    case opLessThan:    return opBiggerEqual;
-    case opLessEqual:   return opBiggerThan;
-    case opBiggerThan:  return opLessEqual;
-    case opBiggerEqual: return opLessThan;
-    default:            assert(false); break;
-  }
+  CScope *cs = GetScope();
+  assert(cs != NULL);
+
+  ostringstream o;
+  o << "l_" << cs->GetName() << "_" << label->GetLabel();
+  return o.str();
+}
+
+string CBackendx86::Label(string label) const
+{
+  CScope *cs = GetScope();
+  assert(cs != NULL);
+
+  return "l_" + cs->GetName() + "_" + label;
 }
 
 string CBackendx86::Condition(EOperation cond) const
@@ -360,51 +470,36 @@ string CBackendx86::Condition(EOperation cond) const
   }
 }
 
-
 size_t CBackendx86::ComputeStackOffsets(CSymtab *symtab,
-                                        int param_ofs,int local_ofs,
-                                        unsigned int *nargs)
+                                        int param_ofs, int local_ofs)
 {
+  // TODO
+	size_t size = 0;
   assert(symtab != NULL);
-  vector<CSymbol*> slist = symtab->GetSymbols();
+  vector<CSymbol*> symbols = symtab->GetSymbols();
+	int nargs = 0;
+	for (size_t i=0; i<symbols.size(); i++) {
+		CSymbol *symbol = symbols[i];
+		ESymbolType st = symbol->GetSymbolType();
+		if (st == stLocal) {
+			int symbolSize = symbol->GetDataType()->GetSize();
 
-  size_t size = 0;
+			symbol->SetBaseRegister("%ebp");
+			symbol->SetOffset(local_ofs - symbolSize);
 
-  if (nargs != NULL) *nargs = 0;
+			size += (symbolSize + 3) / 4 * 4;
+			local_ofs -= (symbolSize + 3) / 4 * 4;
+		} else if (st == stParam) {
+			nargs ++;
 
-  //cout << "  ComputeStackOffsets()" << endl;
-  for (size_t i=0; i<slist.size(); i++) {
-    CSymbol *s = slist[i];
+			CSymParam *param = dynamic_cast<CSymParam *>(symbol);
+			assert(param != NULL);
 
-    //cout << "    " << left << setw(32) << s;
+			param->SetBaseRegister("%ebp");
+			param->SetOffset(param_ofs + param->GetIndex() * 4);
+		}
+	}
 
-    ESymbolType st = s->GetSymbolType();
-
-    if (st == stLocal) {
-      int ssize = s->GetDataType()->GetSize();
-      size += ssize;
-      local_ofs -= ssize;
-
-      s->SetBaseRegister("%ebp");
-      s->SetOffset(local_ofs);
-
-    } else if (st == stParam) {
-      CSymParam *p = dynamic_cast<CSymParam*>(s);
-      assert(p != NULL);
-
-      if (nargs != NULL) (*nargs)++;
-
-      p->SetBaseRegister("%ebp");
-      p->SetOffset(param_ofs + p->GetIndex()*4);
-    }
-
-    //cout << " location: " << Imm(s->GetOffset())
-    //     << "(" << s->GetBaseRegister() << ")" << endl;
-  }
-  //cout << endl
-  //     << "    size = " << size;
-  //if (nargs != NULL) cout << ", #args: " << *nargs;
-  //cout << endl;
-
+  //size = (((size + 20 + nargs*4) + 31) / 32) * 32 - (20 + nargs*4);
   return size;
 }
