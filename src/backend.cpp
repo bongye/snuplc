@@ -228,7 +228,6 @@ void CBackendx86::EmitGlobalData(CScope *scope)
   // TODO
 	CSymtab *symbolTable = scope->GetSymbolTable();
 	assert(symbolTable != NULL);
-
 	vector<CSymbol *> symbols = symbolTable->GetSymbols();
 	for (size_t i=0; i<symbols.size(); i++) {
 		CSymbol *symbol = symbols[i];
@@ -236,8 +235,8 @@ void CBackendx86::EmitGlobalData(CScope *scope)
 
 		if (symbol->GetSymbolType() == stGlobal) {
 			_out << left << setw(7) << symbol->GetName() + ":" << " " 
-					 << setw(7) << ".skip" << " " 
-					 << setw(16) << (t->GetSize() + 3) / 4 * 4;
+					 << setw(8) << ".skip" << " " 
+					 << setw(18) << (t->GetSize() + 3) / 4 * 4;
 			_out << " # " << t;
 			_out << endl;
 		}
@@ -297,8 +296,9 @@ void CBackendx86::EmitInstruction(CTacInstr *i, CSymtab *symtab)
 
 		case opDiv:
 			EmitInstruction("movl", Operand(i->GetSrc(1)) + ", %eax", cmt.str());
-			EmitInstruction("cdq", "");
-			EmitInstruction("idivl", Operand(i->GetSrc(2)));
+			EmitInstruction("cdq");
+			EmitInstruction("movl", Operand(i->GetSrc(2)) + ", %ebx");
+			EmitInstruction("idivl", "%ebx");
 			tmp = dynamic_cast<CTacTemp *>(i->GetDest());
 			assert(tmp != NULL);
 			EmitInstruction("movl", "%eax, " + Operand(tmp));
